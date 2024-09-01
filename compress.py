@@ -25,14 +25,15 @@ def compress(
     sequence_array = data[0].cpu().numpy()
 
     log_probs = list()
-    subsequence_probs = model(
-        data
-    ).logits
-    probs = torch.nn.functional.softmax(subsequence_probs, dim=-1)
-    for i in range(len(sequence_array)):
-        log_probs.append(probs[0, i].detach().cpu().numpy())
-    log_probs = np.vstack(log_probs)
-    probs = np.exp(log_probs)
+    for i in range(1, len(sequence_array)):
+        inputs = torch.tensor([sequence_array[:i]], dtype=data.dtype).to(next(model.parameters()).device)
+        subsequence_probs = model(
+            inputs
+        ).logits
+        probs = torch.nn.functional.softmax(subsequence_probs, dim=-1)
+        log_probs.append(probs[0, -1].detach().cpu().numpy())
+    probs = np.vstack(log_probs)
+    # probs = np.exp(log_probs)
 
     output = list()
     encoder = arithmetic_coder.Encoder(
@@ -87,35 +88,32 @@ def decompress(
     # step, we need the `pdf` of the next token given all currently decompressed
     # tokens, but without a dummy token, the last `pdf` would be that of the last
     # already decompressed token. The value of the dummy token is irrelevant.
-    sequence_array = np.empty((1,1), dtype=np.uint8)
-    dummy_input_ids = torch.tensor(sequence_array, dtype=torch.int64).to(next(model.parameters()).device)
-    subsequence_probs = model(
-        dummy_input_ids
-    ).logits
-    probs = torch.nn.functional.softmax(subsequence_probs, dim=-1)[0,:].detach().cpu().numpy()
+    sequence_array = np.array([[2]], dtype=np.int64)
 
-    for idx in range(uncompressed_length):
-        token = decoder.decode(
-            utils.normalize_pdf_for_arithmetic_coding(probs[idx])
-        )
-        sequence_array = np.insert(sequence_array, -1, token, axis=1)
+    for idx in range(uncompressed_length-1):
         dummy_input_ids = torch.tensor(sequence_array, dtype=torch.int64).to(next(model.parameters()).device)
         subsequence_probs = model(
             dummy_input_ids
         ).logits
-        probs = torch.nn.functional.softmax(subsequence_probs, dim=-1)[0,:].detach().cpu().numpy()
+        probs = torch.nn.functional.softmax(subsequence_probs, dim=-1)
+        probs = probs[0, -1].detach().cpu().numpy()
+        token = decoder.decode(
+            utils.normalize_pdf_for_arithmetic_coding(probs)
+        )
+        sequence_array = np.concatenate((sequence_array, [[token]]), axis=1)
 
     # Remove the dummy token and convert to bytes.
-    return sequence_array[0,:-1].tobytes()
+    return sequence_array[0,:]
 
 def main(
-        text: str = "hello world",
+        text: str = "Hello, my name is Niels",
         model_name_or_path: str = "facebook/opt-350m",
-        device: str = "mps",
+        device: str = "cpu",
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
     model = AutoModelForCausalLM.from_pretrained(model_name_or_path).to(device)
     input_ids = tokenizer([text], return_tensors="pt").to(device).input_ids
+    print(input_ids)
     compressed, num_padded_bits = compress(input_ids, model)
     print(compressed.hex())
     decompressed = decompress(
@@ -124,6 +122,7 @@ def main(
             model,
             len(input_ids[0])
         )
+    print(decompressed)
     reconstructed = tokenizer.decode(decompressed)
     print(reconstructed)
 
