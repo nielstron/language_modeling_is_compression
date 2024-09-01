@@ -42,17 +42,17 @@ def get_enwik9_iterator(
     sequence_length: int = constants.CHUNK_SIZE_BYTES,
 ) -> Iterator[bytes]:
   """Returns an iterator for enwik9 data."""
-  if not os.path.exists('enwik9'):
+  if not os.path.exists('../enwik9'):
     # Downloading and extracting the dataset.
     urllib.request.urlretrieve(
         'https://mattmahoney.net/dc/enwik9.zip',
-        'enwik9.zip',
+        '../enwik9.zip',
     )
-    with zipfile.ZipFile('enwik9.zip', 'r') as zip_ref:
+    with zipfile.ZipFile('../enwik9.zip', 'r') as zip_ref:
       zip_ref.extract('enwik9')
 
   all_chunks = []
-  with open('enwik9', 'rb') as file:
+  with open('../enwik9', 'rb') as file:
     for _ in range(num_chunks):
       all_chunks.append(file.read(sequence_length))
   return iter(all_chunks)
